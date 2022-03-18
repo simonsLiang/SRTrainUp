@@ -78,6 +78,7 @@ device = torch.device('cuda' if cuda else 'cpu')
 
 print("===> Building models")
 args.is_train = True
+window_size = 8
 
 model = architecture.IMDN(upscale=args.scale)
 l1_criterion = nn.L1Loss()
@@ -134,6 +135,7 @@ def train(epoch):
 
         optimizer.zero_grad()
         sr_tensor = model(lr_tensor)
+        
         loss_l1 = l1_criterion(sr_tensor, hr_tensor)
         loss_sr = loss_l1
 
@@ -144,7 +146,7 @@ def train(epoch):
                                                                   loss_l1.item()))
 
 
-def valid():
+def valid2():
     model.eval()
 
     avg_psnr, avg_ssim = 0, 0
@@ -156,6 +158,40 @@ def valid():
 
         with torch.no_grad():
             pre = model(lr_tensor)
+
+        sr_img = utils.tensor2np(pre.detach()[0])
+        gt_img = utils.tensor2np(hr_tensor.detach()[0])
+        crop_size = args.scale
+        cropped_sr_img = utils.shave(sr_img, crop_size)
+        cropped_gt_img = utils.shave(gt_img, crop_size)
+        if args.isY is True:
+            im_label = utils.quantize(sc.rgb2ycbcr(cropped_gt_img)[:, :, 0])
+            im_pre = utils.quantize(sc.rgb2ycbcr(cropped_sr_img)[:, :, 0])
+        else:
+            im_label = cropped_gt_img
+            im_pre = cropped_sr_img
+        avg_psnr += utils.compute_psnr(im_pre, im_label)
+        avg_ssim += utils.compute_ssim(im_pre, im_label)
+    print("===> Valid. psnr: {:.4f}, ssim: {:.4f}".format(avg_psnr / len(testing_data_loader), avg_ssim / len(testing_data_loader)))
+
+def valid():
+    model.eval()
+
+    avg_psnr, avg_ssim = 0, 0
+    for batch in testing_data_loader:
+        lr_tensor, hr_tensor = batch[0], batch[1]
+        if args.cuda:
+            img_lq = lr_tensor.to(device)
+            hr_tensor = hr_tensor.to(device)
+
+        with torch.no_grad():
+            _, _, h_old, w_old = lr_tensor.size()
+            h_pad = (h_old // window_size + 1) * window_size - h_old
+            w_pad = (w_old // window_size + 1) * window_size - w_old
+            img_lq = torch.cat([img_lq, torch.flip(img_lq, [2])], 2)[:, :, :h_old + h_pad, :]
+            img_lq = torch.cat([img_lq, torch.flip(img_lq, [3])], 3)[:, :, :, :w_old + w_pad]
+            output = model(img_lq)
+            pre = output[..., :h_old * args.scale, :w_old * args.scale]
 
         sr_img = utils.tensor2np(pre.detach()[0])
         gt_img = utils.tensor2np(hr_tensor.detach()[0])
@@ -207,11 +243,11 @@ def print_network(net):
 print("===> Training")
 print_network(model)
 for epoch in range(args.start_epoch, args.nEpochs + 1):
+    if epoch%(args.valid_freq)==0:
+      valid()
     train(epoch)
     if epoch%20==0:
       save_checkpoint(epoch)
-    if epoch%(args.valid_freq)==0:
-      valid() 
     if epoch%200==0:
         if args.patch_change == 'up':
           args.patch_size = args.patch_size + 64

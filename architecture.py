@@ -1,4 +1,4 @@
-from SwinRI.models.network_swinir import SwinIR as net
+from SwinIR.models.network_swinir import SwinIR as net
 
 def IMDN(scale=4):
     model = net(upscale=scale, in_chans=3, img_size=64, window_size=8,

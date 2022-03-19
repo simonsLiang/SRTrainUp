@@ -2,77 +2,6 @@ import torch.nn as nn
 from collections import OrderedDict
 import torch
 
-import numpy as np
-from torch.nn import init
-from torch.nn.parameter import Parameter
-
-
-class ShuffleAttention(nn.Module):
-
-    def __init__(self, channel=64,reduction=16,G=8):
-        super().__init__()
-        self.G=G
-        self.channel=channel
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.gn = nn.GroupNorm(channel // (2 * G), channel // (2 * G))
-        self.cweight = Parameter(torch.zeros(1, channel // (2 * G), 1, 1))
-        self.cbias = Parameter(torch.ones(1, channel // (2 * G), 1, 1))
-        self.sweight = Parameter(torch.zeros(1, channel // (2 * G), 1, 1))
-        self.sbias = Parameter(torch.ones(1, channel // (2 * G), 1, 1))
-        self.sigmoid=nn.Sigmoid()
-
-
-    def init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                init.kaiming_normal_(m.weight, mode='fan_out')
-                if m.bias is not None:
-                    init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                init.constant_(m.weight, 1)
-                init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                init.normal_(m.weight, std=0.001)
-                if m.bias is not None:
-                    init.constant_(m.bias, 0)
-
-
-    @staticmethod
-    def channel_shuffle(x, groups):
-        b, c, h, w = x.shape
-        x = x.reshape(b, groups, -1, h, w)
-        x = x.permute(0, 2, 1, 3, 4)
-
-        # flatten
-        x = x.reshape(b, -1, h, w)
-
-        return x
-
-    def forward(self, x):
-        b, c, h, w = x.size()
-        #group into subfeatures
-        x=x.view(b*self.G,-1,h,w) #bs*G,c//G,h,w
-
-        #channel_split
-        x_0,x_1=x.chunk(2,dim=1) #bs*G,c//(2*G),h,w
-
-        #channel attention
-        x_channel=self.avg_pool(x_0) #bs*G,c//(2*G),1,1
-        x_channel=self.cweight*x_channel+self.cbias #bs*G,c//(2*G),1,1
-        x_channel=x_0*self.sigmoid(x_channel)
-
-        #spatial attention
-        x_spatial=self.gn(x_1) #bs*G,c//(2*G),h,w
-        x_spatial=self.sweight*x_spatial+self.sbias #bs*G,c//(2*G),h,w
-        x_spatial=x_1*self.sigmoid(x_spatial) #bs*G,c//(2*G),h,w
-
-        # concatenate along channel axis
-        out=torch.cat([x_channel,x_spatial],dim=1)  #bs*G,c//G,h,w
-        out=out.contiguous().view(b,-1,h,w)
-
-        # channel shuffle
-        out = self.channel_shuffle(out, 2)
-        return out
 
 def conv_layer(in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
     padding = int((kernel_size - 1) / 2) * dilation
@@ -191,9 +120,9 @@ class CCALayer(nn.Module):
         return x * y
 
 
-class IMDModule(nn.Module):
+class IMDModuleBase(nn.Module):
     def __init__(self, in_channels, distillation_rate=0.25):
-        super(IMDModule, self).__init__()
+        super(IMDModuleBase, self).__init__()
         self.distilled_channels = int(in_channels * distillation_rate)
         self.remaining_channels = int(in_channels - self.distilled_channels)
         self.c1 = conv_layer(in_channels, in_channels, 3)
@@ -202,7 +131,7 @@ class IMDModule(nn.Module):
         self.c4 = conv_layer(self.remaining_channels, self.distilled_channels, 3)
         self.act = activation('lrelu', neg_slope=0.05)
         self.c5 = conv_layer(in_channels, in_channels, 1)
-        self.cca = ShuffleAttention(self.distilled_channels * 4)
+        self.cca = CCALayer(self.distilled_channels * 4)
 
     def forward(self, input):
         out_c1 = self.act(self.c1(input))
@@ -212,6 +141,39 @@ class IMDModule(nn.Module):
         out_c3 = self.act(self.c3(remaining_c2))
         distilled_c3, remaining_c3 = torch.split(out_c3, (self.distilled_channels, self.remaining_channels), dim=1)
         out_c4 = self.c4(remaining_c3)
+        out = torch.cat([distilled_c1, distilled_c2, distilled_c3, out_c4], dim=1)
+        out_fused = self.c5(self.cca(out)) + input
+        return out_fused
+
+class IMDModule(nn.Module):
+    def __init__(self, in_channels, distillation_rate=0.25):
+        super(IMDModule, self).__init__()
+        self.distilled_channels = int(in_channels * distillation_rate)
+        self.remaining_channels = int(in_channels - self.distilled_channels)
+        self.c1 = conv_layer(in_channels, in_channels, 3)
+        self.i1 = IMDModuleBase(self.distilled_channels)
+        self.c2 = conv_layer(self.remaining_channels, in_channels, 3)
+        self.i2 = IMDModuleBase(self.distilled_channels)
+        self.c3 = conv_layer(self.remaining_channels, in_channels, 3)
+        self.i3 = IMDModuleBase(self.distilled_channels)
+        self.c4 = conv_layer(self.remaining_channels, self.distilled_channels, 3)
+        self.act = activation('lrelu', neg_slope=0.05)
+        self.c5 = conv_layer(in_channels, in_channels, 1)
+        self.cca = CCALayer(self.distilled_channels * 4)
+
+    def forward(self, input):
+        out_c1 = self.act(self.c1(input))
+        distilled_c1, remaining_c1 = torch.split(out_c1, (self.distilled_channels, self.remaining_channels), dim=1)
+        out_c2 = self.act(self.c2(remaining_c1))
+        distilled_c2, remaining_c2 = torch.split(out_c2, (self.distilled_channels, self.remaining_channels), dim=1)
+        out_c3 = self.act(self.c3(remaining_c2))
+        distilled_c3, remaining_c3 = torch.split(out_c3, (self.distilled_channels, self.remaining_channels), dim=1)
+        out_c4 = self.c4(remaining_c3)
+
+        distilled_c1 = self.i1(distilled_c1)
+        distilled_c2 = self.i2(distilled_c2)
+        distilled_c3 = self.i3(distilled_c3)
+
         out = torch.cat([distilled_c1, distilled_c2, distilled_c3, out_c4], dim=1)
         out_fused = self.c5(self.cca(out)) + input
         return out_fused

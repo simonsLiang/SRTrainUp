@@ -172,7 +172,7 @@ def train(epoch):
             print("===> Epoch[{}]({}/{}): Loss_l1: {:.5f}".format(epoch, iteration, len(training_data_loader),
                                                                   loss_l1.item()))
 
-window_size = 6 
+window_size = 12 
 def valid():
     model.eval()
 
@@ -218,8 +218,8 @@ def save_checkpoint(epoch):
         }
     torch.save(state, checkpoint_path)
     if args.iskaggle == 'y':
-      shutil.copyfile('/kaggle/working/model.pth','/kaggle/working/SRTrain/model.pth')
-      os.chdir('/kaggle/working/SRTrain')
+      shutil.copyfile('/kaggle/working/model.pth','/kaggle/working/SRTrainUp/model.pth')
+      os.chdir('/kaggle/working/SRTrainUp')
       os.system('git rm --cached model.pth')
       os.system("git commit -m 'ts'")
       os.system("git push -u origin main")

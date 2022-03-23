@@ -189,7 +189,7 @@ def valid():
             hr_tensor = hr_tensor.to(device)
 
         with torch.no_grad():
-            pre = model(lr_tensor)[..., :h_old * args.scale, :w_old * args.scale]
+            pre = model([lr_tensor])[..., :h_old * args.scale, :w_old * args.scale]
 
         sr_img = utils.tensor2np(pre.detach()[0])
         gt_img = utils.tensor2np(hr_tensor.detach()[0])

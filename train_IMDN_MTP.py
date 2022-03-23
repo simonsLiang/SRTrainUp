@@ -218,8 +218,8 @@ def save_checkpoint(epoch):
         }
     torch.save(state, checkpoint_path)
     if args.iskaggle == 'y':
-      shutil.copyfile('/kaggle/working/model.pth','/kaggle/working/SRTrain/model.pth')
-      os.chdir('/kaggle/working/SRTrain')
+      shutil.copyfile('/kaggle/working/model.pth','/kaggle/working/SRTrainUp/model.pth')
+      os.chdir('/kaggle/working/SRTrainUp')
       os.system('git rm --cached model.pth')
       os.system("git commit -m 'ts'")
       os.system("git push -u origin main")

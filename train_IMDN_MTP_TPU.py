@@ -93,7 +93,7 @@ if args.pretrained:
 
     if os.path.isfile(args.pretrained):
         print("===> loading models '{}'".format(args.pretrained))
-        checkpoint = torch.load(args.pretrained)
+        checkpoint = torch.load(args.pretrained,map_location=torch.device('cpu'))
         model.load_state_dict(checkpoint['net'], strict=True)
         args.start_epoch = checkpoint['epoch']
 

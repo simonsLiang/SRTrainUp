@@ -226,7 +226,7 @@ def train_fn(rank):
       for iteration, (lr_tensor, hr_tensor) in enumerate(data_device, 1):
           l1_criterion.to(lr_tensor.device)
           optimizer.zero_grad()
-          sr_tensor = model(lr_tensor)
+          sr_tensor = model([lr_tensor])
           loss_l1 = l1_criterion(sr_tensor, hr_tensor)
           loss_l1.backward()
           xm.optimizer_step(optimizer)

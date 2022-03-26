@@ -61,6 +61,7 @@ parser.add_argument("--valid_root", type=str, default='/content')
 parser.add_argument("--iskaggle", type=str, default='no')
 parser.add_argument("--valid_freq", type=int, default=20)
 parser.add_argument("--loss", type=str, default='l1')
+parser.add_argument("--resname", type=str, default='SRTrainUp')
 
 args = parser.parse_args()
 print(args)
@@ -75,6 +76,8 @@ torch.manual_seed(seed)
 
 cuda = args.cuda
 device = torch.device('cuda' if cuda else 'cpu')
+
+resname = args.resname
 
 
 print("===> Building models")
@@ -185,6 +188,16 @@ def save_checkpoint(epoch):
         }
     torch.save(state, checkpoint_path)
     print("===> Checkpoint saved to {}".format(checkpoint_path))
+    if args.iskaggle == 'y':
+        shutil.copyfile('/kaggle/working/model.pth','/kaggle/working/'+resname+'/model.pth')
+        os.chdir('/kaggle/working/'+resname)
+        os.system('git rm --cached model.pth')
+        os.system("git commit -m 'ts'")
+        os.system("git push -u origin main")
+        os.system('git add model.pth')
+        os.system("git commit -m 'ts'")
+        os.system("git push -u origin main")
+        os.chdir("/kaggle/working/IMDN")
 
 def save_checkpoint_best(epoch):
     if not os.path.exists(model_folder):
@@ -197,6 +210,7 @@ def save_checkpoint_best(epoch):
         }
     torch.save(state, checkpoint_path)
     print("===> Checkpoint saved to {}".format(checkpoint_path))
+     
 
 def print_network(net):
     num_params = 0
@@ -209,7 +223,7 @@ def print_network(net):
 print("===> Training")
 print_network(model)
 for epoch in range(args.start_epoch, args.nEpochs + 1):
-    if epoch%10==0:
+    if epoch%20==0:
       save_checkpoint(epoch)
     if epoch%(args.valid_freq)==0:
       psnr = valid()

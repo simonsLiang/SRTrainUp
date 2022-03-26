@@ -178,12 +178,12 @@ class Network(nn.Module):
             setattr(self, 'head_sr_x%d' % s, head)
         #body
         self.body = nn.Sequential(
-            restormer.TB(dim=60),
-            restormer.TB(dim=60),
-            restormer.TB(dim=60),
-            restormer.TB(dim=60),
-            restormer.TB(dim=60),
-            restormer.TB(dim=60))
+            restormer.TB(dim=60,num_heads=1),
+            restormer.TB(dim=60,num_heads=1),
+            restormer.TB(dim=60,num_heads=2),
+            restormer.TB(dim=60,num_heads=2),
+            restormer.TB(dim=60,num_heads=3),
+            restormer.TB(dim=60,num_heads=3))
 
         # tails
         for s in self.scales:

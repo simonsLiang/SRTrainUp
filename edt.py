@@ -183,8 +183,6 @@ class Network(nn.Module):
             restormer.TB(dim=60),
             restormer.TB(dim=60),
             restormer.TB(dim=60),
-            restormer.TB(dim=60),
-            restormer.TB(dim=60),
             restormer.TB(dim=60))
 
         # tails
